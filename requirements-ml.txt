@@ -1,0 +1,18 @@
+# CPU-only runtime shared by the API, pipeline jobs and Airflow tasks.
+numpy==2.0.2
+pandas==2.3.3
+pyarrow==24.0.0
+scipy==1.16.3
+h3==4.5.0
+holidays==0.101
+
+# LightGBM's LGBMRegressor uses the sklearn-compatible estimator interface.
+scikit-learn==1.9.1
+lightgbm==4.7.0
+joblib==1.5.3
+
+matplotlib==3.11.2
+
+SQLAlchemy==2.0.54
+psycopg[binary]==3.3.6
+python-dotenv>=1.1,<2.0

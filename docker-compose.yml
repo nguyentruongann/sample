@@ -1,0 +1,233 @@
+x-app-environment: &app-environment
+  PROJECT_ROOT: /opt/demand_forecasting
+  # PostgreSQL runs on the host (or another external server), outside Docker.
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+  POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-public}
+  POSTGRES_TABLE: ${POSTGRES_TABLE:-fake_demand_10min}
+  PREDICTIONS_TABLE: ${PREDICTIONS_TABLE:-demand_predictions}
+  SEED: ${SEED:-20260916}
+  LOCAL_TIMEZONE: ${LOCAL_TIMEZONE:-Asia/Ho_Chi_Minh}
+  TRAIN_RATIO: ${TRAIN_RATIO:-0.80}
+  TEST_START: ${TEST_START:-2026-08-15T09:40:00+07:00}
+  VALIDATION_DAYS: ${VALIDATION_DAYS:-30}
+  ROLLING_TEST_DAYS: ${ROLLING_TEST_DAYS:-30}
+  TRAIN_HISTORY_DAYS: ${TRAIN_HISTORY_DAYS:-90}
+  SEARCH_TRAIN_ROWS: ${SEARCH_TRAIN_ROWS:-300000}
+  SEARCH_VAL_ROWS: ${SEARCH_VAL_ROWS:-100000}
+  SEARCH_ESTIMATORS: ${SEARCH_ESTIMATORS:-800}
+  TRAIN_N_JOBS: ${TRAIN_N_JOBS:-4}
+  MAX_TRAIN_ROWS: ${MAX_TRAIN_ROWS:-}
+  MODEL_NAMES: ${MODEL_NAMES:-lightgbm}
+  HORIZONS: ${HORIZONS:-10,30,60}
+  PREDICTION_HISTORY_DAYS: ${PREDICTION_HISTORY_DAYS:-8}
+  MIN_TRAIN_ROWS: ${MIN_TRAIN_ROWS:-100000}
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: airflow/Dockerfile
+    args:
+      AIRFLOW_VERSION: ${AIRFLOW_VERSION:-3.3.2}
+  user: "${AIRFLOW_UID:-50000}:0"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment:
+    <<: *app-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_API_JWT_SECRET:?Set AIRFLOW_API_JWT_SECRET in .env}
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: ${LOCAL_TIMEZONE:-Asia/Ho_Chi_Minh}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_METADATA_URL:?Set AIRFLOW_METADATA_URL in .env}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    TZ: ${LOCAL_TIMEZONE:-Asia/Ho_Chi_Minh}
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - airflow_logs:/opt/airflow/logs
+    - demand_data:/opt/demand_forecasting/data
+    - model_store:/opt/demand_forecasting/models
+    - output_store:/opt/demand_forecasting/outputs
+services:
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *app-environment
+      AIRFLOW_METADATA_URL: ${AIRFLOW_METADATA_URL:?Set AIRFLOW_METADATA_URL in .env}
+      POSTGRES_ADMIN_URL: ${POSTGRES_ADMIN_URL:-}
+    volumes:
+      - demand_data:/opt/demand_forecasting/data
+      - model_store:/opt/demand_forecasting/models
+      - output_store:/opt/demand_forecasting/outputs
+    command: ["python", "-u", "-m", "demand_forecasting.pipeline", "bootstrap"]
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: demand-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+
+        airflow db migrate
+
+        if airflow users list | grep -q "$${AIRFLOW_ADMIN_USERNAME}"; then
+          echo "Airflow user '$${AIRFLOW_ADMIN_USERNAME}' already exists. Skipping creation."
+        else
+          echo "Creating Airflow admin user '$${AIRFLOW_ADMIN_USERNAME}'..."
+          airflow users create \
+            --username "$${AIRFLOW_ADMIN_USERNAME}" \
+            --password "$${AIRFLOW_ADMIN_PASSWORD}" \
+            --firstname Demand \
+            --lastname Admin \
+            --role Admin \
+            --email "$${AIRFLOW_ADMIN_EMAIL}"
+        fi
+
+        airflow pools set ml_cpu 1 "CPU model training"
+        airflow pools set db_write 1 "Serialized live ingestion and prediction"
+
+    environment:
+      <<: *app-environment
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_METADATA_URL:?Set AIRFLOW_METADATA_URL in .env}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_API_JWT_SECRET:?Set AIRFLOW_API_JWT_SECRET in .env}
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?Set AIRFLOW_ADMIN_PASSWORD in .env}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@example.com}
+
+    restart: "no"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+
+  airflow-api-server:
+    <<: *airflow-common
+    container_name: demand-airflow-api
+    command: api-server
+    restart: unless-stopped
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/api/v2/monitor/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: demand-airflow-scheduler
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow-api-server:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $${HOSTNAME}"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: demand-airflow-dag-processor
+    command: dag-processor
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-activate:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        for attempt in $$(seq 1 60); do
+          if airflow dags list | grep -q demand_live_inference &&
+             airflow dags list | grep -q demand_weekly_retrain; then
+            airflow dags unpause -y demand_live_inference
+            airflow dags unpause -y demand_weekly_retrain
+            echo "Automatic fake-data inference and weekly retraining enabled"
+            exit 0
+          fi
+          echo "Waiting for Airflow to register DAGs ($${attempt}/60)..."
+          sleep 10
+        done
+        echo "DAG activation failed: check airflow-dag-processor logs" >&2
+        exit 1
+    restart: "no"
+    depends_on:
+      airflow-api-server:
+        condition: service_healthy
+      airflow-dag-processor:
+        condition: service_started
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: demand-prediction-api
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *app-environment
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["tools"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *app-environment
+      AIRFLOW_METADATA_URL: ${AIRFLOW_METADATA_URL:?Set AIRFLOW_METADATA_URL in .env}
+      POSTGRES_ADMIN_URL: ${POSTGRES_ADMIN_URL:-}
+    volumes:
+      - demand_data:/opt/demand_forecasting/data
+      - model_store:/opt/demand_forecasting/models
+      - output_store:/opt/demand_forecasting/outputs
+    entrypoint: []
+    command: ["python", "-m", "demand_forecasting.pipeline", "--help"]
+
+volumes:
+  airflow_logs:
+  demand_data:
+  model_store:
+  output_store:

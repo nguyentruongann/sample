@@ -1,0 +1,7 @@
+# Python 3.12 - CPU only
+-r requirements-api.txt
+
+httpx>=0.28,<1.0
+
+ipykernel>=7.0,<8.0
+pytest>=8.0,<10.0
