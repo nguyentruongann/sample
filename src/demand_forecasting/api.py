@@ -40,7 +40,11 @@ app.mount("/dashboard/assets", StaticFiles(directory=ASSETS), name="dashboard-as
 
 @app.get("/dashboard", include_in_schema=False)
 def dashboard() -> FileResponse:
-    return FileResponse(ASSETS / "index.html", media_type="text/html")
+    return FileResponse(
+        ASSETS / "index.html",
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/v1/dashboard/snapshot", tags=["dashboard"])

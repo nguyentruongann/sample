@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#081321">
   <title>HCM Demand Pulse · H3 live forecast</title>
-  <link rel="stylesheet" href="/dashboard/assets/styles.css">
-  <script src="/dashboard/assets/app.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/assets/styles.css?v=hcm-map-20260929-3">
+  <script src="/dashboard/assets/app.js?v=hcm-map-20260929-3" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -73,20 +73,27 @@
         <article class="map-card">
           <div class="panel-head">
             <div><div class="eyebrow compact">BẢN ĐỒ NHU CẦU</div><h2>Nhịp di chuyển theo khu vực</h2></div>
-            <div class="layer-switch" id="layerButtons">
-              <button type="button" class="active" data-layer="forecast">Dự báo</button>
-              <button type="button" data-layer="observed">Đã quan sát</button>
+            <div class="map-tools">
+              <div class="layer-switch" id="layerButtons">
+                <button type="button" class="active" data-layer="forecast">Dự báo</button>
+                <button type="button" data-layer="observed">Đã quan sát</button>
+              </div>
+              <label class="hex-opacity" for="hexOpacity">ĐỘ ĐẬM Ô
+                <input type="range" id="hexOpacity" min="0" max="85" step="5" value="40" aria-label="Độ đậm của các ô H3">
+                <strong id="opacityValue">40%</strong>
+              </label>
             </div>
           </div>
           <div class="map-note" id="mapNote">Màu thể hiện tổng nhu cầu dự báo trong khoảng đã chọn.</div>
           <div class="map-stage" id="mapStage">
-            <div class="map-radar" aria-hidden="true"></div>
+            <div class="base-map-tiles" id="baseMapTiles" aria-hidden="true"></div>
             <div class="map-location">HỒ CHÍ MINH <span>10.7769° N, 106.7009° E</span></div>
-            <svg id="hexMap" viewBox="0 0 1000 670" role="img" aria-label="Bản đồ ô H3 tô màu theo nhu cầu"><g id="mapGroup"><g id="hexLayer"></g><g id="selectedLayer"></g></g></svg>
+            <svg id="hexMap" role="img" aria-label="Bản đồ HCM với các ô H3 tô màu theo nhu cầu"><g id="hexLayer"></g><g id="selectedLayer"></g></svg>
             <div class="map-empty" id="mapEmpty" hidden><div class="empty-icon">⬡</div><strong>Chưa có dữ liệu để hiển thị</strong><span>Đợi lượt dự báo đầu tiên hoàn thành rồi làm mới trang.</span></div>
             <div class="map-zoom"><button type="button" id="zoomIn" aria-label="Phóng to">+</button><button type="button" id="zoomOut" aria-label="Thu nhỏ">−</button><button type="button" id="zoomFit" aria-label="Vừa khung">⌖</button></div>
             <div class="map-tooltip" id="mapTooltip" hidden></div>
             <div class="map-footer"><span>⬡ MỖI Ô LÀ MỘT KHU VỰC H3</span><span>CUỘN ĐỂ PHÓNG TO · KÉO ĐỂ DI CHUYỂN</span></div>
+            <div class="map-attribution">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</div>
           </div>
           <div class="legend"><span>THẤP</span><div class="legend-gradient"></div><span>CAO</span><span id="legendP95" class="legend-value">—</span></div>
         </article>
