@@ -9,10 +9,11 @@ from pathlib import Path
 import h3
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
+from .basemap import render_hcm_basemap
 from .dashboard import load_dashboard_snapshot, load_hex_detail
 from .database import (
     database_is_ready,
@@ -44,6 +45,14 @@ def dashboard() -> FileResponse:
         ASSETS / "index.html",
         media_type="text/html",
         headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/v1/dashboard/basemap", tags=["dashboard"], response_class=HTMLResponse)
+def dashboard_basemap() -> HTMLResponse:
+    return HTMLResponse(
+        render_hcm_basemap(),
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 

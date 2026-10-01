@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#081321">
   <title>HCM Demand Pulse · H3 live forecast</title>
-  <link rel="stylesheet" href="/dashboard/assets/styles.css?v=hcm-map-20260929-3">
-  <script src="/dashboard/assets/app.js?v=hcm-map-20260929-3" defer></script>
+  <link rel="stylesheet" href="/dashboard/assets/styles.css?v=hcm-folium-20261001-1">
+  <script src="/dashboard/assets/app.js?v=hcm-folium-20261001-1" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -86,14 +86,15 @@
           </div>
           <div class="map-note" id="mapNote">Màu thể hiện tổng nhu cầu dự báo trong khoảng đã chọn.</div>
           <div class="map-stage" id="mapStage">
-            <div class="base-map-tiles" id="baseMapTiles" aria-hidden="true"></div>
+            <iframe class="base-map-frame" id="baseMapFrame" src="/v1/dashboard/basemap?v=hcm-folium-20261001-1" title="Nền đường phố TP.HCM" tabindex="-1" aria-hidden="true"></iframe>
             <div class="map-location">HỒ CHÍ MINH <span>10.7769° N, 106.7009° E</span></div>
             <svg id="hexMap" role="img" aria-label="Bản đồ HCM với các ô H3 tô màu theo nhu cầu"><g id="hexLayer"></g><g id="selectedLayer"></g></svg>
             <div class="map-empty" id="mapEmpty" hidden><div class="empty-icon">⬡</div><strong>Chưa có dữ liệu để hiển thị</strong><span>Đợi lượt dự báo đầu tiên hoàn thành rồi làm mới trang.</span></div>
             <div class="map-zoom"><button type="button" id="zoomIn" aria-label="Phóng to">+</button><button type="button" id="zoomOut" aria-label="Thu nhỏ">−</button><button type="button" id="zoomFit" aria-label="Vừa khung">⌖</button></div>
             <div class="map-tooltip" id="mapTooltip" hidden></div>
+            <div class="map-base-status" id="basemapStatus" role="status" aria-live="polite">Đang tải nền đường phố…</div>
             <div class="map-footer"><span>⬡ MỖI Ô LÀ MỘT KHU VỰC H3</span><span>CUỘN ĐỂ PHÓNG TO · KÉO ĐỂ DI CHUYỂN</span></div>
-            <div class="map-attribution">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</div>
+            <div class="map-attribution">Tiles © <a href="https://www.esri.com/" target="_blank" rel="noopener noreferrer">Esri</a> · HERE, Garmin, USGS, Intermap, increment P, NRCAN, METI, TomTom, GIS User Community</div>
           </div>
           <div class="legend"><span>THẤP</span><div class="legend-gradient"></div><span>CAO</span><span id="legendP95" class="legend-value">—</span></div>
         </article>

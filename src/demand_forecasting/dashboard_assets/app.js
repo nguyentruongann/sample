@@ -18,11 +18,13 @@
     mode: 'Car', horizon: 10, layer: 'forecast', time: 'live', selected: null,
     snapshot: null, request: 0, detailRequest: 0, seconds: 30,
     zoom: 11, centerLon: 106.7009, centerLat: 10.7769, fitted: false,
-    polygons: new Map(), tiles: new Map(),
+    polygons: new Map(), basemapReady: false, basemapLoaded: false,
   };
   const tileSize = 256;
   const minZoom = 9;
   const maxZoom = 16;
+  // A HCM viewing envelope, not an administrative boundary.
+  const hcmView = { south: 10.25, west: 106.20, north: 11.70, east: 107.80 };
 
   const svgEl = (tag, attrs = {}) => {
     const node = document.createElementNS(svgNS, tag);
@@ -152,7 +154,7 @@
     return '#' + first.map((part, i) => Math.round(part + (next[i] - part) * amount).toString(16).padStart(2, '0')).join('');
   }
 
-  // The tiles and H3 polygons use the same Web Mercator projection. API
+  // Folium/Leaflet and H3 polygons use the same Web Mercator projection. API
   // boundaries are [longitude, latitude]; the map stays aligned while panning.
   function world([lon, lat], zoom = state.zoom) {
     const size = tileSize * 2 ** zoom;
@@ -190,42 +192,29 @@
     state.fitted = true;
   }
 
-  function renderTiles() {
-    const [width, height] = viewport();
-    const [centerX, centerY] = world([state.centerLon, state.centerLat]);
-    const count = 2 ** state.zoom;
-    const wanted = new Set();
-    const layer = $('baseMapTiles');
-    const firstX = Math.floor((centerX - width / 2) / tileSize);
-    const lastX = Math.floor((centerX + width / 2) / tileSize);
-    const firstY = Math.max(0, Math.floor((centerY - height / 2) / tileSize));
-    const lastY = Math.min(count - 1, Math.floor((centerY + height / 2) / tileSize));
-    for (let x = firstX; x <= lastX; x++) {
-      for (let y = firstY; y <= lastY; y++) {
-        const wrappedX = ((x % count) + count) % count;
-        const key = `${state.zoom}/${wrappedX}/${y}`;
-        wanted.add(key);
-        let tile = state.tiles.get(key);
-        if (!tile) {
-          tile = document.createElement('img');
-          tile.alt = '';
-          tile.draggable = false;
-          tile.src = `https://tile.openstreetmap.org/${key}.png`;
-          layer.append(tile);
-          state.tiles.set(key, tile);
-        }
-        tile.style.left = `${x * tileSize - centerX + width / 2}px`;
-        tile.style.top = `${y * tileSize - centerY + height / 2}px`;
-      }
-    }
-    for (const [key, tile] of state.tiles) {
-      if (!wanted.has(key)) { tile.remove(); state.tiles.delete(key); }
-    }
+  function limitMapCenter() {
+    state.centerLon = Math.max(hcmView.west, Math.min(hcmView.east, state.centerLon));
+    state.centerLat = Math.max(hcmView.south, Math.min(hcmView.north, state.centerLat));
+  }
+
+  function renderBaseMap() {
+    limitMapCenter();
+    if (!state.basemapReady) return;
+    $('baseMapFrame').contentWindow.postMessage({
+      type: 'hcm-basemap-view',
+      latitude: state.centerLat, longitude: state.centerLon, zoom: state.zoom,
+    }, window.location.origin);
   }
 
   function resetMap() {
     state.fitted = false;
     if (state.snapshot?.cells.length) renderMap();
+    else {
+      state.zoom = 11;
+      state.centerLon = 106.7009;
+      state.centerLat = 10.7769;
+      renderBaseMap();
+    }
   }
 
   function renderMap() {
@@ -239,7 +228,7 @@
     if (!state.fitted) fitMap(cells);
     const [width, height] = viewport();
     $('hexMap').setAttribute('viewBox', `0 0 ${width} ${height}`);
-    renderTiles();
+    renderBaseMap();
     const [centerX, centerY] = world([state.centerLon, state.centerLat]);
     const project = (coordinate) => {
       const [x, y] = world(coordinate);
@@ -290,7 +279,9 @@
       anchorX - x + width / 2, anchorY - y + height / 2,
     ], next);
     state.zoom = next;
+    limitMapCenter();
     if (state.snapshot) renderMap();
+    else renderBaseMap();
   }
 
   function highlightCell(hexId) {
@@ -413,6 +404,33 @@
   $('zoomIn').addEventListener('click', () => zoomAt(1, ...viewport().map((n) => n / 2)));
   $('zoomOut').addEventListener('click', () => zoomAt(-1, ...viewport().map((n) => n / 2)));
   $('zoomFit').addEventListener('click', resetMap);
+  const basemapStatus = $('basemapStatus');
+  const basemapUnavailable = () => {
+    basemapStatus.textContent = 'Nền đường phố chưa tải được. Các ô H3 vẫn hiển thị.';
+    basemapStatus.hidden = false;
+  };
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || event.source !== $('baseMapFrame').contentWindow) return;
+    const type = event.data?.type;
+    if (type === 'hcm-basemap-ready') {
+      state.basemapReady = true;
+      renderBaseMap();
+    } else if (type === 'hcm-basemap-loaded') {
+      state.basemapLoaded = true;
+      basemapStatus.hidden = true;
+    } else if (type === 'hcm-basemap-unavailable') {
+      state.basemapLoaded = false;
+      basemapUnavailable();
+    }
+  });
+  // Request readiness both now and after load so a cached iframe cannot
+  // finish before the parent has attached its message listener.
+  const requestBasemapReady = () => $('baseMapFrame').contentWindow.postMessage(
+    { type: 'hcm-basemap-request-ready' }, window.location.origin,
+  );
+  $('baseMapFrame').addEventListener('load', requestBasemapReady);
+  requestBasemapReady();
+  setTimeout(() => { if (!state.basemapLoaded) basemapUnavailable(); }, 12000);
   const opacityControl = $('hexOpacity');
   function updateOpacity() {
     const percentage = Number(opacityControl.value);
@@ -449,7 +467,9 @@
     [state.centerLon, state.centerLat] = geographic([
       drag.center[0] - dx, drag.center[1] - dy,
     ]);
+    limitMapCenter();
     if (state.snapshot) renderMap();
+    else renderBaseMap();
   });
   const stopDrag = () => { drag = null; map.classList.remove('dragging'); };
   map.addEventListener('pointerup', () => {
@@ -457,7 +477,10 @@
     stopDrag();
   });
   map.addEventListener('pointercancel', stopDrag);
-  window.addEventListener('resize', () => { if (state.snapshot) renderMap(); });
+  window.addEventListener('resize', () => {
+    if (state.snapshot) renderMap();
+    else renderBaseMap();
+  });
 
   const tick = () => {
     $('clock').textContent = clockFormat.format(new Date()) + ' · ICT';
