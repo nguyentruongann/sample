@@ -35,10 +35,10 @@ def small_settings(tmp_path):
     return Settings(
         database_url="", postgres_schema="public", postgres_table="fake_demand_10min",
         predictions_table="demand_predictions", seed=42, local_timezone="Asia/Ho_Chi_Minh",
-        train_ratio=0.80, max_train_rows=900, model_names=("lightgbm",),
+        train_ratio=0.80, max_train_rows=None, model_names=("lightgbm",),
         horizons=(10, 30, 60), validation_days=2, rolling_test_days=2,
         train_history_days=10, search_train_rows=200, search_val_rows=100,
-        search_estimators=12,
+        search_estimators=12, training_strategy="notebook_search",
         test_start="2026-08-13T00:00:00+07:00", data_dir=tmp_path / "data",
         model_dir=tmp_path / "models", output_dir=tmp_path / "outputs",
         prediction_history_days=8,

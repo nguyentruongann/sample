@@ -2,10 +2,10 @@
 
 Hệ thống mô phỏng demand theo H3 tại TP.HCM, lưu dữ liệu vào PostgreSQL chạy
 **ngoài Docker**, train
-**chỉ LightGBM CPU** theo `notebooks/source_main.ipynb` (bản notebook gốc được
-kèm trong ZIP) và tạo dự đoán H10/H30/H60 mỗi
+**chỉ LightGBM CPU** theo feature và cấu hình đã chốt từ `final.ipynb`
+(`notebooks/source_main.ipynb` là tài liệu nguồn cũ, không còn quyết định feature/config) và tạo dự đoán H10/H30/H60 mỗi
 10 phút bằng Apache Airflow. Notebook là tham chiếu cho dữ liệu fake và loại
-model LightGBM; cấu hình cây được tìm trên validation. Docker Compose và Airflow
+model LightGBM; mặc định dùng cấu hình cây đã chốt từ `final.ipynb`. Docker Compose và Airflow
 tự vận hành, không cần train tay.
 
 H10 dự đoán demand bucket `[T,T+10)`. H30/H60 dự đoán **tổng** lần lượt ba/sáu
@@ -176,11 +176,11 @@ trước, **không xóa bảng đang có dữ liệu**:
 docker compose --profile tools run --rm pipeline python -u -m demand_forecasting.pipeline all --models lightgbm --horizons 10,30,60
 ```
 
-Notebook có bảng H10 chọn riêng theo validation: Car XGBoost 15,38% so với
-LightGBM 15,46%, Motorcycle LightGBM 14,91%. Tuy nhiên bảng **tổng** chọn
-LightGBM (overall validation 15,12%), và cell ngay sau bảng ghi chọn LightGBM
-để dễ quản lý; phần phân tích sâu cũng dùng LightGBM direct cho H10/H30/H60.
-Luồng vận hành này theo quyết định cuối của notebook: sáu model LightGBM.
+Phiên bản hiện tại theo **final.ipynb** đã chốt: 6 model LightGBM direct,
+H10 dùng 25 feature (fresh T−10/T−20); H30/H60 dùng 33 feature (fresh + neighbor).
+Không bật tuyến tính hoặc residual correction vì kết quả notebook chưa cho thấy lợi ích.
+Xem [NOTEBOOK_MIGRATION.md](NOTEBOOK_MIGRATION.md) để biết cấu hình từng model,
+file thay đổi, cách cập nhật `.env` và các lệnh đối chiếu.
 
 Bootstrap và weekly retrain dùng cùng một cách chia theo thời gian cho cả sáu
 cặp Car/Motorcycle × H10/H30/H60: **30 ngày mới nhất làm test**, 30 ngày trước
@@ -193,36 +193,44 @@ trước validation 30 ngày, test từ `TEST_START=2026-08-15T09:40:00+07:00`
 đến hết lịch sử gốc `2026-09-11T00:00:00+07:00`. Dữ liệu sinh sau 11/9
 không vào benchmark này, và benchmark không thay `models/active.json`.
 
-Source dùng LightGBM Poisson CPU và feature từ notebook, **không lấy sẵn số lá
-hoặc số cây đã thắng của notebook**. Với từng mode × horizon, nó thử số lá
-`31, 63, 130` như notebook, không áp thêm giới hạn `max_depth`, early stopping 50 vòng
-trên validation, rồi chọn WMAPE validation thấp nhất. Search mặc định dùng
-tối đa 300.000 train và 100.000 validation rows để tiết kiệm CPU; điểm chọn
-cây `VAL_WMAPE_%` được tính trên **toàn bộ validation**. Model cuối fit lại
-trên toàn bộ train+validation bằng số cây đã chọn; test chỉ dùng để đo WMAPE.
-H10 dùng `hex_code` categorical; H30/H60 dùng ma trận float32 với `hex_code`
-numeric, đúng cách truyền dữ liệu ở notebook.
-Có 3 lần fit tìm cây + 1 lần fit cuối cho mỗi model (24 lần fit cho cả sáu).
-Trước lúc fit, pipeline so WMAPE của baseline lag 30 phút giữa tuần lịch sử
-notebook và tuần fake live gần nhất. Nếu live lệch quá lớn, nó dừng trước khi
-tốn thời gian train. Log in validation/test WMAPE và tách test thành trước/sau 11/09 để phát hiện
-generator live bị lệch. Trial ở `outputs/model_search_trials.csv`,
-bootstrap ở `outputs/weekly_retrain_summary.csv`, và diagnostics ở
-`outputs/diagnostics/`. Vì có tìm cây, lần train đầu sẽ lâu hơn bản trước.
+Source dùng LightGBM Poisson CPU. Mặc định `TRAINING_STRATEGY=locked`:
+Car H10/H30/H60 lần lượt dùng (lá, cây) = (63,633), (130,763), (130,799);
+Motorcycle dùng (63,762), (63,795), (130,792), lấy từ output `FINAL_FIT_SUMMARY`.
+Mỗi model fit TRAIN để báo cáo validation bằng cấu hình cố định, rồi refit
+TRAIN+VAL (đã purge) để đánh giá TEST và lưu artifact: tổng 12 lần fit, không tuning.
 
-Chỉ khi đủ sáu model, VAL/TEST WMAPE hữu hạn và TEST WMAPE từng model không
+Để chạy lại đúng quy trình search trong notebook, chọn `TRAINING_STRATEGY=notebook_search`
+hoặc `train --strategy notebook_search`: thử lá 130→31→63 cho H10,
+63→31→130 cho H30/H60, tối đa 800 cây, early stopping 50 vòng theo MAE.
+Chọn WMAPE **float đã clip** trên toàn VAL; hòa điểm giữ trial xuất hiện trước.
+Refit với số lá/cây thắng trên TRAIN+VAL; tổng 18 search fit + 6 refit.
+Cả hai chế độ dùng **toàn bộ train/validation**, không dùng `SEARCH_TRAIN_ROWS`/
+`SEARCH_VAL_ROWS` cũ; `MAX_TRAIN_ROWS` phải để trống.
+
+H10 truyền DataFrame, `hex_code` categorical; H30/H60 truyền float32 numeric.
+Artifact lưu đúng mã hex theo mode/horizon, thứ tự feature, gốc `trend_day`,
+neighbor universe và schema `final_fresh_neighbor_v1`. Online dùng đúng các
+thông tin này. TEST và online đều dùng `rint(clip(prediction, 0, None))`;
+`WMAPE_%`/`WMAPE_rounded_%` là metric số nguyên, `WMAPE_float_%` để tham khảo.
+Prediction validation cũng được lưu trong thư mục run. Các horizon là tổng
+[T,T+H), không dùng prediction H10 làm feature H30/H60.
+
+Trước lúc fit rolling, pipeline vẫn kiểm tra độ ổn định generator live bằng
+baseline lag 30 phút. Kết quả train ở `outputs/weekly_retrain_summary.csv`,
+trial/validation ở `outputs/model_search_trials.csv` và thư mục run;
+benchmark lịch sử ở `outputs/notebook_benchmark_summary.csv`.
+
+Trong luồng demo hiện có, chỉ khi đủ sáu model, VAL/TEST WMAPE hữu hạn và TEST WMAPE số nguyên từng model không
 vượt 30% thì `models/active.json` mới được thay nguyên bộ. Nếu thiếu horizon
 hoặc WMAPE vượt ngưỡng, phiên bản cũ vẫn giữ và cảnh báo ghi tại
 `outputs/training_alerts.json`. Model của phiên bản generator cũ cũng không
 được phục vụ bằng dữ liệu fake mới; bootstrap sẽ báo lỗi thay vì phục vụ model
 không đạt.
 
-Dataset đầy đủ hơn 5 triệu dòng nên bước đầu có thể tốn RAM và thời gian. Muốn
-test CPU nhanh, đặt trong `.env`:
-
-```dotenv
-MAX_TRAIN_ROWS=300000
-```
+Ngưỡng tự kích hoạt 30% được giữ từ flow cũ cho demo dữ liệu giả, **không phải
+chứng nhận model đủ chất lượng production**. Benchmark không tự kích hoạt model.
+Dataset đầy đủ hơn 5 triệu dòng nên train có thể tốn RAM/thời gian. Không giảm
+mẫu nếu muốn đối chiếu notebook; dùng `python -m pytest` cho smoke test dữ liệu nhỏ.
 
 Sau khi train, kiểm tra phiên bản model trong Docker volume:
 
@@ -364,9 +372,9 @@ docker compose exec airflow-scheduler airflow dags unpause demand_weekly_retrain
 
 Task train dùng Pool `ml_cpu`, ingest/dự báo dùng Pool `db_write`; train mặc
 định 4 luồng CPU (`TRAIN_N_JOBS`) để DAG 10 phút vẫn chạy trong khi train.
-Weekly retrain bù dữ liệu tới hiện tại, tìm cấu hình cây bằng validation
-30 ngày, đo WMAPE test 30 ngày và fit trên tối đa 90 ngày train cộng
-validation trước khi thay `active.json`. Kết quả ở
+Weekly retrain bù dữ liệu tới hiện tại, dùng cấu hình cố định (`locked`) hoặc
+search toàn validation (`notebook_search`), fit trên tối đa 90 ngày train cộng
+30 ngày validation rồi đo 30 ngày test trước khi thay `active.json`. Kết quả ở
 `outputs/weekly_retrain_summary.csv`, trial ở `outputs/model_search_trials.csv`,
 dự báo test ở `outputs/weekly/`. Model phục vụ không fit trên 30 ngày test;
 mốc test 15/08 của lệnh backtest lịch sử không thay đổi.

@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import get_settings
+from .notebook_contract import EVALUATION_SCHEMA, FEATURE_SCHEMA
 
 
 def _parse_csv_strings(value: str) -> tuple[str, ...]:
@@ -47,6 +48,9 @@ def command_train(args) -> pd.DataFrame:
     from .jobs import train_from_postgres
 
     settings = get_settings()
+    if getattr(args, "strategy", None):
+        from dataclasses import replace
+        settings = replace(settings, training_strategy=args.strategy)
     summary, feature_path, feature_rows = train_from_postgres(
         settings=settings,
         model_names=_parse_csv_strings(args.models),
@@ -141,7 +145,8 @@ def _active_model_files_exist(settings) -> bool:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         files = manifest["model_files"]
         if (manifest.get("model_name") != "lightgbm"
-                or manifest.get("evaluation_schema") != 3
+                or manifest.get("evaluation_schema") != EVALUATION_SCHEMA
+                or manifest.get("feature_schema") != FEATURE_SCHEMA
                 or manifest.get("live_generator_version") != LIVE_GENERATOR_VERSION):
             return False
         for mode in ("Car", "Motorcycle"):
@@ -214,6 +219,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--models", default="lightgbm")
     train.add_argument("--horizons", default="10,30,60")
     train.add_argument("--rolling", action="store_true", help="Rolling 90-day train, 30-day validation and 30-day test")
+    train.add_argument("--strategy", choices=("locked", "notebook_search"), default=None,
+                       help="Default: TRAINING_STRATEGY=locked, using final.ipynb leaves/trees")
     train.set_defaults(handler=command_train)
 
     evaluate = subparsers.add_parser("evaluate", help="Export model diagnostics")

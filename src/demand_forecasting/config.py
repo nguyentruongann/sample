@@ -62,6 +62,8 @@ class Settings:
     search_train_rows: int = 300_000
     search_val_rows: int = 100_000
     search_estimators: int = 800
+    training_strategy: str = "locked"
+    fresh_buckets_closed_at_t: bool = True
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -94,6 +96,12 @@ class Settings:
         if min(train_history_days, search_train_rows, search_val_rows, search_estimators) < 1:
             raise ValueError("Training window and search budgets must be positive.")
 
+        training_strategy = os.getenv("TRAINING_STRATEGY", "locked").strip().lower()
+        if training_strategy not in ("locked", "notebook_search"):
+            raise ValueError("TRAINING_STRATEGY must be locked or notebook_search")
+        fresh_closed = os.getenv("FRESH_BUCKETS_CLOSED_AT_T", "true").strip().lower() in ("1", "true", "yes")
+        if not fresh_closed:
+            raise ValueError("final.ipynb features require closed/ingested T-10/T-20 buckets")
         prediction_history_days = int(os.getenv("PREDICTION_HISTORY_DAYS", "8"))
         if prediction_history_days < 8:
             raise ValueError("PREDICTION_HISTORY_DAYS must be at least 8.")
@@ -121,6 +129,8 @@ class Settings:
             search_train_rows=search_train_rows,
             search_val_rows=search_val_rows,
             search_estimators=search_estimators,
+            training_strategy=training_strategy,
+            fresh_buckets_closed_at_t=fresh_closed,
         )
 
     def require_database_url(self) -> str:

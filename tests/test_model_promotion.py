@@ -32,7 +32,7 @@ def test_43_pct_test_wmape_keeps_previous_active_models(tmp_path, monkeypatch):
     def fake_train_one(source, mode, horizon, *_args, **_kwargs):
         return {
             "travel_mode": mode, "horizon": horizon, "VAL_WMAPE_%": 15.0,
-            "WMAPE_%": 43.0, "num_leaves": 31, "best_iteration": 100,
+            "WMAPE_%": 43.0, "WMAPE_rounded_%": 43.0, "num_leaves": 31, "best_iteration": 100,
             "fit_seconds": .1, "notebook_test_WMAPE_%": 15.0,
             "live_test_WMAPE_%": 70.0,
         }, f"{mode}_h{horizon}.joblib", [{"mode": mode, "horizon": horizon}]
@@ -70,7 +70,7 @@ def test_notebook_benchmark_never_replaces_live_models(tmp_path, monkeypatch):
     def fake_train_one(source, mode, horizon, *_args, **_kwargs):
         return {
             "travel_mode": mode, "horizon": horizon, "VAL_WMAPE_%": 14.0,
-            "WMAPE_%": 15.0, "num_leaves": 63, "best_iteration": 400,
+            "WMAPE_%": 15.0, "WMAPE_rounded_%": 15.0, "num_leaves": 63, "best_iteration": 400,
             "fit_seconds": .1, "notebook_test_WMAPE_%": 15.0,
             "live_test_WMAPE_%": float("nan"),
         }, f"{mode}_h{horizon}.joblib", [{"mode": mode, "horizon": horizon}]

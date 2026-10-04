@@ -44,7 +44,7 @@ def demand_weekly_retrain():
             "trained_models": len(summary),
             "feature_path": str(feature_path),
             "promoted": bool(summary["promoted"].all()),
-            "validation_status": "searched_before_refit",
+            "validation_status": sorted(summary["validation_status"].unique().tolist()),
             "val_wmape": dict(zip(
                 summary["travel_mode"] + "_H" + summary["horizon"].astype(str),
                 summary["VAL_WMAPE_%"].astype(float),

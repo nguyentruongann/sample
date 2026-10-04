@@ -86,7 +86,7 @@ def time_based_split(
     )
     ts = pd.to_datetime(frame["bucket_start"])
     target_end = ts + pd.Timedelta(minutes=horizon_minutes)
-    train_start = val_start - pd.Timedelta(days=train_history_days)
+    train_start = val_start - pd.Timedelta(days=train_history_days) if rolling else ts.min()
     if rolling:
         test_end = cutoff + pd.Timedelta(days=rolling_test_days)
     else:

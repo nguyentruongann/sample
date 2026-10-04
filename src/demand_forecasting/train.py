@@ -19,6 +19,8 @@ from .data_split import resolve_boundaries, time_based_split
 from .evaluate import calculate_metrics, wmape
 from .fake_data import LOCAL_END
 from .feature_engineering import prepare_horizon_frame
+from .notebook_contract import (FEATURE_SCHEMA, EVALUATION_SCHEMA, FEATURE_POLICY,
+    EXPECTED_FEATURE_COUNT, LEAF_TRIAL_ORDER, LOCKED_PARAMS)
 
 # The notebook searches these leaf counts independently for each mode/horizon.
 # It does not cap max_depth. Rounds are learned with validation early stopping.
@@ -42,7 +44,6 @@ def lightgbm_params(horizon: int, seed: int, leaves: int, rounds: int, n_jobs: i
         subsample_freq=1,
         colsample_bytree=0.90,
         reg_lambda=2.0,
-        force_col_wise=True,
         verbosity=-1,
         n_jobs=n_jobs,
         random_state=seed,
@@ -93,7 +94,7 @@ def _train_one(
     rolling: bool,
     training_origin: str,
 ) -> tuple[dict, str, list[dict]]:
-    """Search tree shapes on validation, refit once, score only on held-out test."""
+    """Use locked/search parameters, refit TRAIN+VAL, score integer TEST predictions."""
     from lightgbm import LGBMRegressor, early_stopping
 
     print(f"{mode} H{horizon}: preparing target and features", flush=True)
@@ -108,56 +109,69 @@ def _train_one(
     print(
         f"{mode} H{horizon}: train={len(split.train_index):,} "
         f"val={len(split.val_index):,} test={len(split.test_index):,}; "
-        f"searching {len(TREE_CANDIDATES)} tree shapes with early stopping",
+        f"strategy={settings.training_strategy}; full train/validation",
         flush=True,
     )
+    assert len(features) == EXPECTED_FEATURE_COUNT[horizon]
     started = time.perf_counter()
-    rng = np.random.default_rng(settings.seed + horizon + 1000 * (mode == "Motorcycle"))
-    search_train = split.train_index
-    if rolling and len(search_train) > settings.search_train_rows:
-        search_train = np.sort(rng.choice(search_train, settings.search_train_rows, replace=False))
-    search_val = split.val_index
-    if rolling and len(search_val) > settings.search_val_rows:
-        search_val = np.sort(rng.choice(search_val, settings.search_val_rows, replace=False))
+    strategy = settings.training_strategy
+    parameter_source = "final_notebook_locked" if strategy == "locked" else "validation_tree_search"
+    validation_status = "locked_params_evaluated_before_refit" if strategy == "locked" else "searched_before_refit"
+    # Full TRAIN and full VAL, exactly as final.ipynb; no search sampling.
+    search_train, search_val = split.train_index, split.val_index
     x_train = _model_input(frame.iloc[search_train], features, horizon)
-    y_train = frame.iloc[search_train][target]
-    x_val_sample = _model_input(frame.iloc[search_val], features, horizon)
-    y_val_sample = frame.iloc[search_val][target]
-    x_val = _model_input(frame.iloc[split.val_index], features, horizon)
-    val_actual = frame.iloc[split.val_index][target].to_numpy(dtype=np.float64)
+    y_train = frame.iloc[search_train][target].to_numpy(dtype=np.float32)
+    x_val = _model_input(frame.iloc[search_val], features, horizon)
+    val_actual = frame.iloc[search_val][target].to_numpy(dtype=np.float64)
     trials: list[dict] = []
-    for leaves in TREE_CANDIDATES:
-        params = lightgbm_params(
-            horizon, settings.seed, leaves, settings.search_estimators,
-            settings.train_n_jobs,
-        )
+    best_prediction = None
+    best_score = float("inf")
+    if strategy == "locked":
+        configs = [LOCKED_PARAMS[(mode, horizon)]]
+    else:
+        # Stable first-min tie rule in notebook trial order (H10 starts at 130).
+        order = [n for n in LEAF_TRIAL_ORDER[horizon] if n in TREE_CANDIDATES]
+        order += [n for n in TREE_CANDIDATES if n not in order]
+        configs = [(leaves, settings.search_estimators) for leaves in order]
+    for leaves, budget in configs:
+        params = lightgbm_params(horizon, settings.seed, leaves, budget, settings.train_n_jobs)
         trial_start = time.perf_counter()
         candidate = LGBMRegressor(**params)
-        fit_options = {
-            "eval_set": [(x_val_sample, y_val_sample)],
-            "callbacks": [early_stopping(stopping_rounds=50, verbose=False)],
-        }
+        fit_options = {}
+        if strategy == "notebook_search":
+            fit_options.update(eval_set=[(x_val, val_actual)],
+                callbacks=[early_stopping(stopping_rounds=50, verbose=False)])
         if horizon == 10:
             fit_options["categorical_feature"] = ["hex_code"]
         candidate.fit(x_train, y_train, **fit_options)
-        rounds = int(candidate.best_iteration_ or settings.search_estimators)
+        rounds = int(candidate.best_iteration_ or budget) if strategy == "notebook_search" else budget
         val_prediction = np.clip(candidate.predict(x_val, num_iteration=rounds), 0, None)
+        if not np.isfinite(val_prediction).all():
+            raise ValueError("Nonfinite validation prediction")
         score = wmape(val_actual, val_prediction)
         if not np.isfinite(score):
             raise ValueError(f"{mode} H{horizon}: validation WMAPE is unavailable")
+        midpoint = split.val_start + (split.test_start-split.val_start)/2
+        first = (frame.iloc[search_val]["bucket_start"] < midpoint).to_numpy()
         trials.append({
             "travel_mode": mode, "horizon": horizon, "num_leaves": leaves,
             "max_depth": -1, "best_iteration": rounds, "VAL_WMAPE_%": score,
+            "VAL_WMAPE_integer_%": wmape(val_actual, np.rint(val_prediction)),
+            "first_val_WMAPE_integer_%": wmape(val_actual[first], np.rint(val_prediction[first])),
+            "second_val_WMAPE_integer_%": wmape(val_actual[~first], np.rint(val_prediction[~first])),
             "search_train_rows": len(search_train), "search_val_rows": len(search_val),
-            "full_val_rows": len(split.val_index),
+            "full_val_rows": len(split.val_index), "parameter_source": parameter_source,
+            "feature_count": len(features), "hit_tree_limit": strategy == "notebook_search" and rounds == budget,
             "search_seconds": time.perf_counter() - trial_start,
         })
-        print(f"{mode} H{horizon} trial | leaves={leaves} "
-              f"trees={rounds} VAL WMAPE={score:.2f}%", flush=True)
+        if score < best_score:
+            best_score, best_prediction = score, np.rint(val_prediction).astype(np.int64)
+        print(f"{mode} H{horizon} {strategy} | leaves={leaves} trees={rounds} "
+              f"VAL float WMAPE={score:.4f}%", flush=True)
         del candidate, val_prediction
         gc.collect()
-    del x_train, y_train, x_val_sample, y_val_sample, x_val
-    best = min(trials, key=lambda item: (item["VAL_WMAPE_%"], item["num_leaves"]))
+    del x_train, y_train, x_val
+    best = min(trials, key=lambda item: item["VAL_WMAPE_%"])
     for trial in trials:
         trial["selected"] = trial is best
     params = lightgbm_params(
@@ -167,12 +181,15 @@ def _train_one(
     model = _fit(
         LGBMRegressor(**params),
         _model_input(frame.iloc[split.train_val_index], features, horizon),
-        frame.iloc[split.train_val_index][target],
+        frame.iloc[split.train_val_index][target].to_numpy(dtype=np.float32),
         horizon,
     )
     fit_seconds = time.perf_counter() - started
-    test_prediction = np.clip(model.predict(
+    test_float = np.clip(model.predict(
         _model_input(frame.iloc[split.test_index], features, horizon)), 0, None)
+    if not np.isfinite(test_float).all():
+        raise ValueError("Nonfinite test prediction")
+    test_prediction = np.rint(test_float).astype(np.int64)
     actual = frame.iloc[split.test_index][target].to_numpy(dtype=np.float64)
     test_metrics = calculate_metrics(actual, test_prediction)
     if not np.isfinite(test_metrics["WMAPE_%"]):
@@ -183,24 +200,29 @@ def _train_one(
     live_test = (test_times >= LOCAL_END).to_numpy()
     notebook_wmape = wmape(actual[notebook_test], test_prediction[notebook_test])
     live_wmape = wmape(actual[live_test], test_prediction[live_test])
-    categories = mode_frame["hex_id_7"]
-    if isinstance(categories.dtype, pd.CategoricalDtype):
-        hex_categories = [str(x) for x in categories.cat.categories]
-    else:
-        hex_categories = sorted(categories.astype(str).unique())
     stem = f"{mode.lower()}_h{horizon}_lightgbm"
     model_path = run_dir / f"{stem}.joblib"
     _atomic_joblib({
         "model": model, "feature_columns": features, "target_column": target,
         "travel_mode": mode, "horizon": horizon, "model_name": "lightgbm",
         "strategy": "direct", "model_params": params,
-        "parameter_source": "validation_tree_search", "search_trials": trials,
-        "validation_status": "searched_before_refit",
+        "parameter_source": parameter_source, "search_trials": trials,
+        "validation_status": validation_status,
         "train_start": split.train_start.isoformat(),
         "val_start": split.val_start.isoformat(),
         "test_start": split.test_start.isoformat(),
         "test_end": split.test_end.isoformat(),
-        "training_origin": training_origin, "hex_categories": hex_categories,
+        "training_origin": training_origin,
+        "hex_categories": sorted(frame["hex_id_7"].astype(str).unique()),
+        "hex_code_mapping": {str(hx): int(code) for hx, code in
+            frame[["hex_id_7", "hex_code"]].drop_duplicates().itertuples(index=False, name=None)},
+        "neighbor_hex_ids": sorted(mode_frame["hex_id_7"].astype(str).unique()),
+        "local_timezone": settings.local_timezone,
+        "feature_schema": FEATURE_SCHEMA, "feature_count": len(features),
+        "variant": FEATURE_POLICY[horizon], "postprocessing": "clip_rint_only",
+        "fit_scope": "train_plus_validation_purged",
+        "availability_requirement": "T-10/T-20 closed and ingested at forecast time T",
+        "target_semantics": "sum demand over [T,T+H)",
         "input_format": "categorical_dataframe" if horizon == 10 else "numeric_float32",
     }, model_path)
 
@@ -214,7 +236,12 @@ def _train_one(
     predictions["horizon"] = f"H{horizon}"
     predictions["model"] = "lightgbm"
     predictions["actual"] = actual.astype(np.float32)
-    predictions["prediction"] = np.asarray(test_prediction, dtype=np.float32)
+    predictions["prediction"] = test_prediction
+    predictions["prediction_float"] = test_float
+    # Save validation predictions separately: model trained only on TRAIN.
+    val_rows = frame.iloc[split.val_index][["bucket_start", "hex_id_7", "travel_mode"]].copy()
+    val_rows["actual"], val_rows["prediction"] = val_actual, best_prediction
+    val_rows.to_parquet(run_dir / f"validation_{stem}.parquet", index=False)
     predictions.to_parquet(path, index=False)
     row = {
         "travel_mode": mode, "horizon": horizon, "model": "lightgbm",
@@ -228,12 +255,15 @@ def _train_one(
         "purged_rows": len(split.purged_index),
         "num_leaves": params["num_leaves"], "max_depth": -1,
         "best_iteration": params["n_estimators"],
-        "parameter_source": "validation_tree_search",
-        "validation_status": "searched_before_refit",
+        "parameter_source": parameter_source,
+        "validation_status": validation_status,
         "VAL_WMAPE_%": best["VAL_WMAPE_%"],
         "VAL_baseline_WMAPE_%": baseline_val,
         "WMAPE_%": test_metrics["WMAPE_%"], "baseline_WMAPE_%": baseline_test,
         "WMAPE_rounded_%": rounded_test_wmape,
+        "WMAPE_float_%": wmape(actual, test_float),
+        "feature_count": len(features), "variant": FEATURE_POLICY[horizon],
+        "VAL_WMAPE_integer_%": best["VAL_WMAPE_integer_%"],
         "notebook_test_rows": int(notebook_test.sum()),
         "notebook_test_WMAPE_%": notebook_wmape,
         "live_test_rows": int(live_test.sum()),
@@ -259,6 +289,12 @@ def train_all(
     settings.ensure_directories()
     if tuple(model_names or settings.model_names) != ("lightgbm",):
         raise ValueError("Only notebook LightGBM is supported")
+    if getattr(settings, "max_train_rows", None) is not None:
+        raise ValueError("MAX_TRAIN_ROWS must be empty: final.ipynb trains on all rows")
+    if getattr(settings, "training_strategy", "locked") not in ("locked", "notebook_search"):
+        raise ValueError("TRAINING_STRATEGY must be locked or notebook_search")
+    if not getattr(settings, "fresh_buckets_closed_at_t", True):
+        raise ValueError("The chosen feature set requires T-10/T-20 closed and ingested at T")
     selected_horizons = tuple(dict.fromkeys(horizons or settings.horizons))
     if not selected_horizons or set(selected_horizons) - {10, 30, 60}:
         raise ValueError("Horizons must be selected from 10,30,60")
@@ -334,6 +370,12 @@ def train_all(
     pd.DataFrame(search_trials).to_csv(run_dir / "model_search_trials.csv", index=False)
     shared_trials = "model_search_trials.csv" if rolling else "notebook_benchmark_search_trials.csv"
     pd.DataFrame(search_trials).to_csv(settings.output_dir / shared_trials, index=False)
+    # Always keep a complete candidate manifest, including historical benchmark runs.
+    _atomic_json({"run_id": run_id, "model_name": "lightgbm", "model_files": model_files,
+        "feature_schema": FEATURE_SCHEMA, "evaluation_schema": EVALUATION_SCHEMA,
+        "training_strategy": getattr(settings, "training_strategy", "locked"),
+        "rolling": rolling, "promoted": promoted, "postprocessing": "clip_rint_only"},
+        run_dir / "manifest.json")
     if promoted:
         # Publish the whole set together; online requests never see a mixed run.
         from .incremental_data import LIVE_GENERATOR_VERSION
@@ -343,7 +385,11 @@ def train_all(
             "model_name": "lightgbm",
             "trained_at_utc": datetime.now(timezone.utc).isoformat(),
             "rolling": rolling,
-            "evaluation_schema": 3,
+            "evaluation_schema": EVALUATION_SCHEMA,
+            "feature_schema": FEATURE_SCHEMA,
+            "training_strategy": getattr(settings, "training_strategy", "locked"),
+            "postprocessing": "clip_rint_only",
+            "deployment_scope": "synthetic_pipeline_demo_not_production_approval",
             "live_generator_version": LIVE_GENERATOR_VERSION,
             "model_files": model_files,
         }, settings.model_dir / "active.json")
