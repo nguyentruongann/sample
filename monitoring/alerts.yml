@@ -1,0 +1,78 @@
+groups:
+- name: demand-mentor-monitoring
+  rules:
+  - alert: DemandCollectorDown
+    expr: up{job="demand-monitor"} == 0
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Collector unreachable
+  - alert: DemandCollectorStale
+    expr: demand_monitor_success == 0 or time()-demand_monitor_last_success_timestamp
+      > 300
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Collector failed/stale
+  - alert: DemandFeatureWarning
+    expr: demand_feature_warning == 1
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Feature missing or stale beyond configured threshold
+  - alert: DemandPerformanceJobStale
+    expr: time()-demand_performance_last_success_timestamp > demand_performance_interval_seconds
+      + 1800
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Delayed performance job not updating
+  - alert: DemandPerformanceHighWMAPE
+    expr: (demand_performance_wmape_pct > 15) and (demand_performance_alert_ready
+      == 1)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Window WMAPE above 15 percent
+  - alert: DemandPerformanceBias
+    expr: (abs(demand_performance_bias_pct) > 10) and (demand_performance_alert_ready
+      == 1)
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Window absolute bias above 10 percent
+  - alert: DemandActualMissing
+    expr: demand_performance_missing_actual > 0
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: Window has incomplete actuals; will retry within recheck period
+  - alert: DemandForecastOriginsMissing
+    expr: demand_performance_window_forecast_origins < demand_performance_expected_origins
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: Missing forecast origins in evaluated window; inspect version changes
+        too
+  - alert: DemandPredictionDistributionShift
+    expr: demand_distribution_warning == 1
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Serving prediction distribution differs from versioned fit reference
+  - alert: DemandReferenceMissing
+    expr: demand_distribution_reference_missing == 1
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Create matching prediction reference for model version

@@ -1,0 +1,455 @@
+{
+  "uid": "demand-monitoring",
+  "title": "Demand · Feature, Performance, Prediction Distribution",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "1 · Feature monitoring",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 2,
+      "title": "Feature warning",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_feature_warning",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Source freshness p95 (minutes)",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_source_age_p95_seconds / 60",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Missing feature ratio",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_feature_missing_ratio",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Worst source age (minutes)",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_source_age_max_seconds / 60",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "2 · Model performance — delayed windows",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 7,
+      "title": "WMAPE by evaluated window",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_performance_wmape_pct",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Bias by evaluated window",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_performance_bias_pct",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "MAE by evaluated window",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_performance_mae",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "Actual coverage",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_performance_actual_coverage_pct",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "title": "Evaluated window end",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_performance_window_end_timestamp * 1000",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "title": "Eligible samples",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_performance_samples",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "title": "3 · Prediction distribution — serving vs fit reference",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 14,
+      "title": "Prediction PSI",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_distribution_psi",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 15,
+      "title": "Predictions outside reference range",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_distribution_out_of_reference_range_ratio",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "title": "Missing reference",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_distribution_reference_missing",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 17,
+      "title": "Distribution warning",
+      "type": "timeseries",
+      "description": "Performance values are last evaluated window snapshots at scrape time; see port 8001 for exact window history.",
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "demand-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "demand_distribution_warning",
+          "legendFormat": "{{travel_mode}} H{{horizon_minutes}} {{feature}} {{model_version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

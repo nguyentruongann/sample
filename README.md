@@ -495,3 +495,7 @@ pip install -e . --no-deps
 $env:DATABASE_URL = 'postgresql://demand_user:YOUR_PASSWORD@localhost:5432/demand_db'
 pytest
 ```
+
+## Monitoring theo mentor
+
+Xem [MONITORING.md](MONITORING.md): feature missing/freshness, performance theo giờ có delay, prediction distribution so với reference của model. Có option replay nhanh tách biệt dữ liệu live, không cần chờ đồng hồ thật.

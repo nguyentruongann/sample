@@ -278,6 +278,9 @@ def predict_and_store(
             frame, feature_columns = build_online_features(
                 raw_history, forecast_start, artifact, horizon, settings.local_timezone,
             )
+            from .feature_monitor import measure, persist
+            persist(settings, measure(frame, feature_columns, raw_history, forecast_start,
+                                      mode, horizon, _model_version(model_path)))
             # The notebook observes only a subset of H3 cells on some days.
             # LightGBM handles missing history for dormant/newly active cells.
             # All-fresh-history-missing is an ingest failure, not a silent fallback.

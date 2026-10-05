@@ -553,6 +553,8 @@ def upsert_predictions(frame: pd.DataFrame, settings: Settings | None = None) ->
     with psycopg.connect(settings.require_database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.executemany(query, records)
+        from .monitoring_store import archive_predictions
+        archive_predictions(connection, settings, records, frame.attrs.get("monitor_health"))
     return len(records)
 
 

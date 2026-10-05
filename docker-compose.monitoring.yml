@@ -1,0 +1,76 @@
+x-monitor-environment: &monitor-environment
+  MONITOR_INTERVAL_HOURS: "${MONITOR_INTERVAL_HOURS:-1}"
+  MONITOR_DELAY_HOURS: "${MONITOR_DELAY_HOURS:-1}"
+  MONITOR_RECHECK_HOURS: "${MONITOR_RECHECK_HOURS:-48}"
+  MONITOR_LABEL_WAIT_SECONDS: "${MONITOR_LABEL_WAIT_SECONDS:-120}"
+  MONITOR_ISSUE_GRACE_SECONDS: "${MONITOR_ISSUE_GRACE_SECONDS:-120}"
+  MONITOR_FEATURE_DELAY_WARNING_SECONDS: "${MONITOR_FEATURE_DELAY_WARNING_SECONDS:-900}"
+  MONITOR_FEATURE_MISSING_WARNING_RATIO: "${MONITOR_FEATURE_MISSING_WARNING_RATIO:-0.05}"
+  MONITOR_SERVING_WINDOW_HOURS: "${MONITOR_SERVING_WINDOW_HOURS:-24}"
+  MONITOR_MIN_SAMPLES: "${MONITOR_MIN_SAMPLES:-100}"
+  MONITOR_MIN_DEMAND: "${MONITOR_MIN_DEMAND:-1000}"
+  MONITOR_PSI_WARNING: "${MONITOR_PSI_WARNING:-0.2}"
+  MONITOR_RANGE_WARNING_RATIO: "${MONITOR_RANGE_WARNING_RATIO:-0.05}"
+  MONITOR_MAX_ROWS: "${MONITOR_MAX_ROWS:-1000000}"
+  MONITOR_POLL_SECONDS: "${MONITOR_POLL_SECONDS:-60}"
+
+services:
+  airflow-scheduler:
+    environment: *monitor-environment
+  airflow-dag-processor:
+    environment: *monitor-environment
+  airflow-api-server:
+    environment: *monitor-environment
+  pipeline:
+    environment: *monitor-environment
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      <<: *monitor-environment
+      PROJECT_ROOT: /opt/demand_forecasting
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-public}
+      POSTGRES_TABLE: ${POSTGRES_TABLE:-fake_demand_10min}
+      LOCAL_TIMEZONE: ${LOCAL_TIMEZONE:-Asia/Ho_Chi_Minh}
+    volumes:
+      - model_store:/opt/demand_forecasting/models:ro
+    command: ["uvicorn", "demand_forecasting.monitoring_service:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["127.0.0.1:${MONITOR_PORT:-8001}:8001"]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d"]
+    ports: ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    ports: ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/demand.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+volumes:
+  prometheus_data:
+  grafana_data:

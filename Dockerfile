@@ -18,6 +18,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 COPY src ./src
 COPY scripts ./scripts
 RUN python -m pip install --no-cache-dir --no-deps . \
+    && python -c "from importlib.resources import files; assert files('demand_forecasting').joinpath('dashboard_assets/monitoring.html').is_file(), 'Missing packaged monitoring.html'" \
     && mkdir -p data models outputs \
     && chown -R 50000:0 /opt/demand_forecasting
 

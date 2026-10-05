@@ -226,6 +226,13 @@ def _train_one(
         "input_format": "categorical_dataframe" if horizon == 10 else "numeric_float32",
     }, model_path)
 
+    # Reference uses final model and exactly its fitting rows, never TEST/serving.
+    from .prediction_reference import predict_fit, save_reference
+    reference_predictions = predict_fit(model, frame.iloc[split.train_val_index], features, horizon)
+    save_reference(model_path, reference_predictions, mode, horizon,
+                   split.train_start.isoformat(), split.test_start.isoformat())
+    del reference_predictions
+
     baseline_column = "lag_30m" if horizon == 10 else f"naive_recent_h{horizon}"
     baseline_val = wmape(frame.iloc[split.val_index][target], frame.iloc[split.val_index][baseline_column])
     baseline_test = wmape(frame.iloc[split.test_index][target], frame.iloc[split.test_index][baseline_column])
